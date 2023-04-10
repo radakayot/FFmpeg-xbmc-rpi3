@@ -19,6 +19,7 @@ HEADERS = ac3_parser.h                                                  \
           mediacodec.h                                                  \
           packet.h                                                      \
           qsv.h                                                         \
+          mmal_zc.h                                                     \
           vaapi.h                                                       \
           vdpau.h                                                       \
           version.h                                                     \
@@ -140,6 +141,7 @@ OBJS-$(CONFIG_QSVDEC)                  += qsvdec.o
 OBJS-$(CONFIG_QSVENC)                  += qsvenc.o
 OBJS-$(CONFIG_RANGECODER)              += rangecoder.o
 OBJS-$(CONFIG_RDFT)                    += rdft.o
+OBJS-$(CONFIG_MMAL)                    += mmal_qpu.o mmal_mailbox.o mmal_zc.o
 OBJS-$(CONFIG_RV34DSP)                 += rv34dsp.o
 OBJS-$(CONFIG_SHARED)                  += log2_tab.o reverse.o
 OBJS-$(CONFIG_SINEWIN)                 += sinewin.o
@@ -403,6 +405,14 @@ OBJS-$(CONFIG_HEVC_QSV_DECODER)        += qsvdec.o
 OBJS-$(CONFIG_HEVC_QSV_ENCODER)        += qsvenc_hevc.o hevc_ps_enc.o       \
                                           hevc_data.o
 OBJS-$(CONFIG_HEVC_RKMPP_DECODER)      += rkmppdec.o
+OBJS-$(CONFIG_MMAL)                    += mmal_mem.o \
+                                          mmal_mailbox.o mmal_zc.o
+OBJS-$(CONFIG_HEVC_MMAL_DECODER)       += mmal_hevcdec.o mmal_hevc_mvs.o \
+                                          mmal_hevc_cabac.o mmal_hevc_refs.o mmal_hevcpred.o    \
+                                          mmal_hevcdsp.o mmal_hevc_filter.o mmal_hevc_data.o    \
+                                          mmal_hevc_shader.o mmal_hevc_shader_template.o       \
+                                          mmal_hevc_parse.o h2645_parse.o mmal_hevc_ps.o \
+                                          mmal_hevc_sei.o mmal_hevc_data.o mmal_qpu.o mmal_mem.o
 OBJS-$(CONFIG_HEVC_VAAPI_ENCODER)      += vaapi_encode_h265.o h265_profile_level.o
 OBJS-$(CONFIG_HEVC_V4L2M2M_DECODER)    += v4l2_m2m_dec.o
 OBJS-$(CONFIG_HEVC_V4L2M2M_ENCODER)    += v4l2_m2m_enc.o
@@ -1296,4 +1306,32 @@ $(SUBDIR)mpegaudiodec_float.o: $(SUBDIR)mpegaudio_tables.h
 $(SUBDIR)pcm.o: $(SUBDIR)pcm_tables.h
 $(SUBDIR)qdm2.o: $(SUBDIR)qdm2_tables.h
 $(SUBDIR)sinewin.o: $(SUBDIR)sinewin_tables.h
+endif
+
+ifdef CONFIG_HEVC_MMAL_DECODER
+QASM_PY := ../local/bin/qasm.py
+VASMVIDCORE := ../local/bin/vasmvidcore_std
+
+ifneq ("$(wildcard $(QASM_PY))","")
+$(SUBDIR)mmal_hevc_shader.c: $(SUBDIR)mmal_hevc_shader.qasm
+	$(QASM_PY) -mc_c:mmal_hevc_shader,mmal_hevc_shader,ff_hevc_mmal_shader $< > $@
+
+$(SUBDIR)mmal_hevc_shader.h: $(SUBDIR)mmal_hevc_shader.qasm
+	$(QASM_PY) -mc_h:mmal_hevc_shader,mmal_hevc_shader,ff_hevc_mmal_shader $< > $@
+endif
+
+ifneq ("$(wildcard $(VASMVIDCORE))","")
+$(SUBDIR)mmal_hevc_transform8.bin: $(SUBDIR)mmal_hevc_transform.s
+	$(VASMVIDCORE) -Fbin -DBIT_DEPTH=8 $< -o $@
+$(SUBDIR)mmal_hevc_transform10.bin: $(SUBDIR)mmal_hevc_transform.s
+	$(VASMVIDCORE) -Fbin -DBIT_DEPTH=10 $< -o $@
+
+$(SUBDIR)mmal_hevc_transform8.h: $(SUBDIR)mmal_hevc_transform8.bin
+	python tools/python/make_array.py $<
+$(SUBDIR)mmal_hevc_transform10.h: $(SUBDIR)mmal_hevc_transform10.bin
+	python tools/python/make_array.py $<
+endif
+
+$(SUBDIR)mmal_qpu.o: $(SUBDIR)mmal_hevc_transform8.h $(SUBDIR)mmal_hevc_transform10.h
+$(SUBDIR)mmal_hevcdec.o $(SUBDIR)mmal_shader_template.o $(SUBDIR)mmal_qpu.o: $(SUBDIR)mmal_hevc_shader.h
 endif
